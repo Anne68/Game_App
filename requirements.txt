@@ -1,17 +1,31 @@
+# API & Web
 fastapi
 uvicorn
+streamlit
+
+# Config & validation
 python-dotenv
 pydantic-settings
+
+# Authentification & sécurité
 passlib[bcrypt]
 python-jose[cryptography]==3.3.0
 cryptography
 python-multipart
-pymysql
+
+# Base de données
 sqlalchemy>=2.0
+pymysql
+mysqlclient
+
+# Data Science / ML
 pandas
 scikit-learn==1.5.2
+
+# Monitoring & Limites
 prometheus-fastapi-instrumentator
 slowapi
 requests
-streamlit
+
+# Tests
 pytest
