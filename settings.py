@@ -2,41 +2,37 @@
 import os
 from sqlalchemy.engine.url import make_url
 
-# ==============================
-# Lecture DB_URL
-# ==============================
-DB_URL = os.getenv("DB_URL")
+def _normalize_db_url(raw: str) -> str:
+    # SQLAlchemy veut mysql+pymysql:// ...
+    if raw.startswith("mysql://"):
+        raw = raw.replace("mysql://", "mysql+pymysql://", 1)
+    # Ajoute ssl=true si absent
+    if "?" not in raw:
+        raw += "?ssl=true"
+    elif "ssl=" not in raw:
+        raw += "&ssl=true"
+    return raw
 
-if not DB_URL:
-    raise RuntimeError("❌ DB_URL is not set in environment variables!")
+# 1) Lis DB_URL (Railway) ou DATABASE_URL (fallback)
+_DB_URL = os.getenv("DB_URL") or os.getenv("DATABASE_URL")
 
-# ==============================
-# Correction format
-# ==============================
-# Railway fournit un "mysql://..." → SQLAlchemy attend "mysql+pymysql://"
-if DB_URL.startswith("mysql://"):
-    DB_URL = DB_URL.replace("mysql://", "mysql+pymysql://", 1)
+SQLALCHEMY_DATABASE_URL = None
+DB_CONFIG = None
 
-# Ajout SSL obligatoire sur Railway
-if "?" not in DB_URL:
-    DB_URL += "?ssl=true"
-elif "ssl=" not in DB_URL:
-    DB_URL += "&ssl=true"
-
-# ==============================
-# Export config
-# ==============================
-SQLALCHEMY_DATABASE_URL = DB_URL
-url_obj = make_url(SQLALCHEMY_DATABASE_URL)
-
-DB_CONFIG = {
-    "driver": url_obj.drivername,
-    "host": url_obj.host,
-    "port": url_obj.port,
-    "user": url_obj.username,
-    "password": url_obj.password,
-    "database": url_obj.database,
-    "query": url_obj.query,
-}
-
-print(f"✅ Using DB: {DB_CONFIG['user']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+if _DB_URL and _DB_URL.strip():
+    try:
+        SQLALCHEMY_DATABASE_URL = _normalize_db_url(_DB_URL.strip())
+        url_obj = make_url(SQLALCHEMY_DATABASE_URL)  # peut lever une erreur
+        DB_CONFIG = {
+            "driver": url_obj.drivername,
+            "host": url_obj.host,
+            "port": url_obj.port,
+            "user": url_obj.username,
+            "database": url_obj.database,
+        }
+        print(f"✅ Using DB: {DB_CONFIG['user']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+    except Exception as e:
+        print(f"⚠️ Invalid DB_URL: {e}. DB features will be disabled until fixed.")
+        SQLALCHEMY_DATABASE_URL = None
+else:
+    print("⚠️ DB_URL not set. DB features will be disabled until you configure it.")
