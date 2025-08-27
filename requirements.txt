@@ -7,6 +7,7 @@ python-jose[cryptography]==3.3.0
 cryptography
 python-multipart
 pymysql
+sqlalchemy>=2.0
 pandas
 scikit-learn==1.5.2
 prometheus-fastapi-instrumentator
