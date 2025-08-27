@@ -9,6 +9,40 @@ from pydantic import field_validator, ValidationInfo
 from pydantic_settings import BaseSettings
 from sqlalchemy.engine.url import make_url
 
+# --- en haut du fichier ---
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from fastapi import HTTPException
+
+import settings  # ton settings.py expose SQLALCHEMY_DATABASE_URL
+
+_engine: Engine | None = None
+
+
+def get_engine() -> Engine:
+    """Crée (lazy) et retourne un Engine SQLAlchemy unique (pool_pre_ping=True)."""
+    global _engine
+    if _engine is None:
+        db_url = settings.SQLALCHEMY_DATABASE_URL  # <-- chaîne, pas un dict
+        if not db_url:
+            raise RuntimeError("No SQLALCHEMY_DATABASE_URL configured.")
+        _engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=300)
+    return _engine
+
+
+@app.get("/db-ping")
+def db_ping():
+    """Vérifie la connectivité MySQL avec SELECT 1."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            val = conn.execute(text("SELECT 1")).scalar()
+        return {"ok": True, "result": int(val)}
+    except Exception as e:
+        # message clair, pas de .get() sur une string
+        raise HTTPException(status_code=500, detail=f"DB ping failed: {e}")
+
+
 
 def _normalize_db_url(raw: str | None) -> Optional[str]:
     """Nettoie/normalise l'URL de BDD pour SQLAlchemy."""
