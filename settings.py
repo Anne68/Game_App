@@ -4,8 +4,8 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import field_validator, ValidationInfo
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from sqlalchemy.engine.url import make_url
 
 
@@ -20,7 +20,7 @@ def _normalize_db_url(raw: str | None) -> Optional[str]:
     if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
         raw = raw[1:-1].strip()
 
-    # Force le driver si mysql://
+    # Force le driver pymysql si mysql://
     if raw.startswith("mysql://"):
         raw = raw.replace("mysql://", "mysql+pymysql://", 1)
 
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
-    # === CORS & Logs ===
+    # === CORS ===
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     ALLOW_ORIGINS: str = os.getenv(
         "ALLOW_ORIGINS",
@@ -49,46 +49,41 @@ class Settings(BaseSettings):
     # === Monitoring ===
     PROMETHEUS_ENABLED: bool = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
 
-    # === DB (Railway : DB_URL recommandé) ===
-    DB_URL: Optional[str] = os.getenv("DB_URL")
+    # === DB (Railway expose DB_URL directement) ===
+    DB_URL: Optional[str] = None
+    DB_HOST: Optional[str] = None
+    DB_PORT: Optional[str] = None
+    DB_USER: Optional[str] = None
+    DB_PASSWORD: Optional[str] = None
+    DB_NAME: Optional[str] = None
 
-    # Fallback si pas de DB_URL
-    DB_HOST: Optional[str] = os.getenv("DB_HOST")
-    DB_PORT: Optional[str] = os.getenv("DB_PORT")
-    DB_USER: Optional[str] = os.getenv("DB_USER")
-    DB_PASSWORD: Optional[str] = os.getenv("DB_PASSWORD")
-    DB_NAME: Optional[str] = os.getenv("DB_NAME")
-
-    # URL finale utilisée par SQLAlchemy (calculée)
     SQLALCHEMY_DATABASE_URL: Optional[str] = None
 
     @field_validator("SQLALCHEMY_DATABASE_URL", mode="before")
     @classmethod
-    def build_sqlalchemy_url(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+    def build_sqlalchemy_url(cls, v: Optional[str], values: dict) -> Optional[str]:
         """
         Construit/normalise l'URL SQLAlchemy.
         Priorité à DB_URL (Railway), sinon fallback à partir des composants.
         """
-        data = info.data or {}
+        # 1) Railway DB_URL
+        db_url = _normalize_db_url(values.get("DB_URL") or os.getenv("DB_URL"))
 
-        # 1) DB_URL (Railway)
-        db_url = _normalize_db_url(data.get("DB_URL") or os.getenv("DB_URL"))
-
-        # 2) Fallback composés
+        # 2) Fallback si pas de DB_URL direct
         if not db_url:
-            h = data.get("DB_HOST") or os.getenv("DB_HOST")
-            p = data.get("DB_PORT") or os.getenv("DB_PORT")
-            u = data.get("DB_USER") or os.getenv("DB_USER")
-            pw = data.get("DB_PASSWORD") or os.getenv("DB_PASSWORD")
-            db = data.get("DB_NAME") or os.getenv("DB_NAME")
+            h = values.get("DB_HOST") or os.getenv("DB_HOST")
+            p = values.get("DB_PORT") or os.getenv("DB_PORT")
+            u = values.get("DB_USER") or os.getenv("DB_USER")
+            pw = values.get("DB_PASSWORD") or os.getenv("DB_PASSWORD")
+            db = values.get("DB_NAME") or os.getenv("DB_NAME")
             if all([h, p, u, pw, db]):
                 db_url = f"mysql+pymysql://{u}:{pw}@{h}:{p}/{db}?ssl=false"
 
         if not db_url:
-            print("⚠️  No DB_URL/DB config found. DB features will be disabled until configured.")
+            print("⚠️ No DB_URL/DB config found. DB features disabled.")
             return None
 
-        # 3) Validation par SQLAlchemy
+        # 3) Validation
         try:
             normalized = str(make_url(db_url))
             print(f"✅ Using DB URL: {normalized}")
