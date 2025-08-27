@@ -2,6 +2,18 @@
 import os
 from sqlalchemy.engine.url import make_url
 
+
+DB_URL = os.getenv("DB_URL")
+
+if DB_URL:
+    try:
+        url_obj = make_url(DB_URL)  # validation
+        print(f"✅ DB_URL valid: {url_obj}")
+    except Exception as e:
+        print(f"❌ Invalid DB_URL: {e}")
+else:
+    print("⚠️ No DB_URL found in environment")
+
 # settings.py (remplace _normalize_db_url)
 def _normalize_db_url(raw: str) -> str:
     raw = raw.strip()
