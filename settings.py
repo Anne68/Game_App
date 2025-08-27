@@ -5,7 +5,7 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, ValidationInfo
 from pydantic_settings import BaseSettings
 from sqlalchemy.engine.url import make_url
 
@@ -17,16 +17,15 @@ def _normalize_db_url(raw: str | None) -> Optional[str]:
 
     raw = raw.strip()
 
-    # Enlève d’éventuels guillemets collés par erreur
+    # Retire d’éventuels guillemets
     if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
         raw = raw[1:-1].strip()
 
-    # Force l'utilisation du driver pymysql si on a un mysql:// classique
+    # Force le driver si mysql://
     if raw.startswith("mysql://"):
         raw = raw.replace("mysql://", "mysql+pymysql://", 1)
 
-    # Ajoute ssl=true s'il n'y a aucun paramètre ou pas de ssl défini
-    # (souple ; laisse passer si tu n'en veux pas)
+    # Ajoute ssl=true si aucun paramètre ou pas de ssl
     if "?" not in raw:
         raw += "?ssl=true"
     elif "ssl=" not in raw:
@@ -52,10 +51,9 @@ class Settings(BaseSettings):
     PROMETHEUS_ENABLED: bool = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
 
     # === DB (Railway : DB_URL recommandé) ===
-    # Variable telle quelle de l'env (ex: ${{ MySQL.MYSQL_URL }})
     DB_URL: Optional[str] = os.getenv("DB_URL")
 
-    # Fallback si pas de DB_URL (local/développement)
+    # Fallback si pas de DB_URL
     DB_HOST: Optional[str] = os.getenv("DB_HOST")
     DB_PORT: Optional[str] = os.getenv("DB_PORT")
     DB_USER: Optional[str] = os.getenv("DB_USER")
@@ -67,33 +65,32 @@ class Settings(BaseSettings):
 
     @field_validator("SQLALCHEMY_DATABASE_URL", mode="before")
     @classmethod
-    def build_sqlalchemy_url(cls, v: Optional[str], values: dict) -> Optional[str]:
+    def build_sqlalchemy_url(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
         """
         Construit/normalise l'URL SQLAlchemy.
         Priorité à DB_URL (Railway), sinon fallback à partir des composants.
         """
-        # 1) Railway : DB_URL
-        db_url = _normalize_db_url(values.get("DB_URL"))
+        data = info.data or {}
+
+        # 1) DB_URL (Railway)
+        db_url = _normalize_db_url(data.get("DB_URL") or os.getenv("DB_URL"))
+
+        # 2) Fallback composés
         if not db_url:
-            # 2) Fallback composés (utile en local docker-compose)
-            h, p, u, pw, db = (
-                values.get("DB_HOST"),
-                values.get("DB_PORT"),
-                values.get("DB_USER"),
-                values.get("DB_PASSWORD"),
-                values.get("DB_NAME"),
-            )
+            h = data.get("DB_HOST") or os.getenv("DB_HOST")
+            p = data.get("DB_PORT") or os.getenv("DB_PORT")
+            u = data.get("DB_USER") or os.getenv("DB_USER")
+            pw = data.get("DB_PASSWORD") or os.getenv("DB_PASSWORD")
+            db = data.get("DB_NAME") or os.getenv("DB_NAME")
             if all([h, p, u, pw, db]):
                 db_url = f"mysql+pymysql://{u}:{pw}@{h}:{p}/{db}?ssl=false"
 
         if not db_url:
-            # Pas de DB → autorise l'API à démarrer sans DB ; les endpoints DB échoueront proprement
             print("⚠️  No DB_URL/DB config found. DB features will be disabled until configured.")
             return None
 
-        # 3) Validation SQLAlchemy
+        # 3) Validation par SQLAlchemy
         try:
-            # make_url valide et normalise l'URL
             normalized = str(make_url(db_url))
             print(f"✅ Using DB URL: {normalized}")
             return normalized
@@ -108,9 +105,8 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Singleton pydantic settings."""
     return Settings()
 
 
-# Compatibilité avec l'ancien code : variable de module
+# Compat avec `import settings`
 SQLALCHEMY_DATABASE_URL: Optional[str] = get_settings().SQLALCHEMY_DATABASE_URL
