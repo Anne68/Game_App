@@ -2,16 +2,24 @@
 import os
 from sqlalchemy.engine.url import make_url
 
+# settings.py (remplace _normalize_db_url)
 def _normalize_db_url(raw: str) -> str:
-    # SQLAlchemy veut mysql+pymysql:// ...
+    raw = raw.strip()
+    # enlève d’éventuels guillemets ajoutés par erreur
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        raw = raw[1:-1].strip()
+
+    # convertit mysql:// -> mysql+pymysql:// pour SQLAlchemy
     if raw.startswith("mysql://"):
         raw = raw.replace("mysql://", "mysql+pymysql://", 1)
-    # Ajoute ssl=true si absent
+
+    # ajoute ssl=true si absent
     if "?" not in raw:
         raw += "?ssl=true"
     elif "ssl=" not in raw:
         raw += "&ssl=true"
     return raw
+
 
 # 1) Lis DB_URL (Railway) ou DATABASE_URL (fallback)
 _DB_URL = os.getenv("DB_URL") or os.getenv("DATABASE_URL")
