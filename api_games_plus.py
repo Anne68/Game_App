@@ -73,7 +73,8 @@ def _search_games_by_title(q: str, limit: int = 25) -> List[Dict[str, Any]]:
     ]
     for sql in candidates:
         try:
-            return fetch_all(sql, {"q": f\"%{q}%\", "lim": limit})
+            return fetch_all(sql, {"q": f"%{q}%", "lim": limit})
+
         except Exception:
             continue
     return []
