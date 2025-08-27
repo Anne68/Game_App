@@ -1,4 +1,4 @@
-# client_streamlit.py (Search + AI Recos seulement)
+# client_streamlit.py
 from __future__ import annotations
 
 import os
@@ -10,20 +10,24 @@ import pandas as pd
 import streamlit as st
 
 # =======================
-# Config & Session State
+# Config lecture API_URL
 # =======================
 st.set_page_config(page_title="Games UI", page_icon="🎮", layout="wide")
 
-# URL de l'API : ENV d'abord, sinon défaut (réseau docker)
-API_URL = (os.getenv("API_URL") or "http://api:8000").rstrip("/")
+# ENV > secrets > défaut local
+try:
+    API_URL = os.getenv("API_URL") or (st.secrets.get("API_URL") if hasattr(st, "secrets") else None)
+except Exception:
+    API_URL = os.getenv("API_URL")
+API_URL = (API_URL or "http://127.0.0.1:8000").rstrip("/")
 
-# Auth/session
+# =======================
+# Session State (auth+nav)
+# =======================
 st.session_state.setdefault("token", "")
 st.session_state.setdefault("username", "")
-st.session_state["login_drawn_this_run"] = False  # reset each run
-
-# Navigation pilotable par état
 st.session_state.setdefault("active_tab", "Search")
+st.session_state["login_drawn_this_run"] = False  # reset every rerun
 
 # ==============
 # HTTP helpers
@@ -95,12 +99,12 @@ def nice_game_title(g: dict) -> str:
     if r is not None:
         try:
             bits.append(f"⭐ {float(r):.1f}")
-        except:
+        except Exception:
             pass
     if m is not None:
         try:
             bits.append(f"MC {int(m)}")
-        except:
+        except Exception:
             pass
     return t + ((" · " + " · ".join(bits)) if bits else "")
 
@@ -118,10 +122,6 @@ def platform_pills(items):
             )
 
 def _extract_min_price(rows: list[dict]) -> tuple[str, str] | None:
-    """
-    Retourne (price_text, shop_text) pour le prix minimum si identifiable.
-    Sinon None.
-    """
     if not rows:
         return None
     df = pd.DataFrame(rows)
@@ -142,7 +142,6 @@ def _extract_min_price(rows: list[dict]) -> tuple[str, str] | None:
     if not c_price:
         return None
 
-    # convert to numeric when possible
     def to_num(s):
         if s is None:
             return None
@@ -162,36 +161,25 @@ def _extract_min_price(rows: list[dict]) -> tuple[str, str] | None:
     shop_text  = str(row[c_shop]) if c_shop in df.columns else ""
     return price_text, shop_text
 
-# ==========================
-# Game card (Search results)
-# ==========================
 def game_card(g: dict, idx: int):
-    """
-    Carte jeu qui AFFICHE directement :
-      - prix mini (si dispo) via /games/title/{title}/prices (alias OK) ou /games/{id}/prices
-      - plateformes via /games/by-title/{title}/platforms (alias OK) ou /games/{id}/platforms
-    """
     with st.container():
         st.markdown(f"### {nice_game_title(g)}")
         c1, c2 = st.columns([2, 2])
 
-        # --- Genres
         with c1:
             genres = g.get("genres", "")
             if genres:
                 st.caption(genres)
 
-        # Résolution de l'identité
         title = (g.get("title") or g.get("name") or "").strip()
         gid   = g.get("id") or g.get("game_id_rawg")
 
-        # --- Prix (mini) ---
+        # Prix
+        prices_endpoint = None
         if title:
             prices_endpoint = f"/games/title/{quote(title)}/prices"
         elif gid:
             prices_endpoint = f"/games/{gid}/prices"
-        else:
-            prices_endpoint = None
 
         min_price_text = None
         min_price_shop = None
@@ -204,13 +192,12 @@ def game_card(g: dict, idx: int):
                     if mp:
                         min_price_text, min_price_shop = mp
 
-        # --- Plateformes ---
+        # Plateformes
+        plats_endpoint = None
         if title:
             plats_endpoint = f"/games/by-title/{quote(title)}/platforms"
         elif gid:
             plats_endpoint = f"/games/{gid}/platforms"
-        else:
-            plats_endpoint = None
 
         plats = []
         if plats_endpoint:
@@ -219,7 +206,6 @@ def game_card(g: dict, idx: int):
                 if code == 200:
                     plats = payload.get("platforms") or payload.get("platform_ids") or []
 
-        # --- Rendu : prix mini + pastilles plateformes
         with c2:
             if min_price_text:
                 if min_price_shop:
@@ -272,7 +258,6 @@ if st.session_state.active_tab == "Search":
         if not q.strip():
             st.warning("Saisissez un texte de recherche.")
         else:
-            # L’API accepte /games/by-title/{title} ET /games/title/{title}
             code, payload = api_get(f"/games/by-title/{quote(q.strip())}")
             if handle_401(code, payload):
                 st.stop()
@@ -283,7 +268,7 @@ if st.session_state.active_tab == "Search":
                 else:
                     for i, g in enumerate(games):
                         game_card(g, i)
-            elif show_not_found(code, payload, "Aucun résultat."):
+            elif show_not_found(code, payload, "Aucun résultat.")():
                 pass
             else:
                 st.error(payload.get("detail", payload))
@@ -295,7 +280,6 @@ else:
     st.markdown("### Recommendations")
     s1, s2 = st.tabs(["By title", "By genre"])
 
-    # --- by title ---
     with s1:
         ti = st.text_input("Title", key="q_reco_title", placeholder="ex: The Witcher 3")
         k1 = st.number_input("Top-N", value=5, min_value=1, max_value=20, step=1, key="k_title")
@@ -314,7 +298,6 @@ else:
                 else:
                     st.error(payload.get("detail", payload))
 
-    # --- by genre ---
     with s2:
         ge = st.text_input("Genre", key="q_reco_genre", placeholder="ex: Action, RPG…")
         k2 = st.number_input("Top-N ", value=5, min_value=1, max_value=20, step=1, key="k_genre")
