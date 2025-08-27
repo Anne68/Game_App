@@ -1,6 +1,6 @@
 # settings.py
 from __future__ import annotations
-
+import settings
 import os
 from functools import lru_cache
 from typing import Optional
